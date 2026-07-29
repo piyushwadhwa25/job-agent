@@ -179,12 +179,25 @@ def location_confidence(full_text: str) -> str:
     return "assumed"
 
 
+BARE_REMOTE_MENTION_RE = re.compile(r"\bremote\b", re.IGNORECASE)
+
+
 def remote_verdict(text: str) -> str:
+    """'yes' | 'no' | 'unclear' based on plain keyword rules.
+    Important: if the text doesn't mention "remote" ANYWHERE (not even
+    the location field), that's treated as 'no', not 'unclear'. A plain
+    city-listed job with zero remote language is almost always just an
+    office job -- sending it to the AI as "maybe" was letting non-remote
+    roles slip through on a coin-flip. Only jobs that at least mention
+    "remote" somewhere, but not in a clearly qualifying phrase, go to
+    the AI for a closer read."""
     has_yes = bool(REMOTE_YES_RE.search(text))
     has_no = bool(REMOTE_NO_RE.search(text))
     if has_yes and not has_no:
         return "yes"
     if has_no:
+        return "no"
+    if not BARE_REMOTE_MENTION_RE.search(text):
         return "no"
     return "unclear"
 
