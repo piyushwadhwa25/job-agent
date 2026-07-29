@@ -144,25 +144,24 @@ def region_hint(text: str) -> str:
 
 
 def availability(raw_location: str, full_text: str) -> str:
-    """'global' | 'restricted' -- whether the listing is open worldwide
-    or limited to one country/region. Two ways a job gets flagged
-    restricted:
-    1. Explicit restriction language anywhere in the text (citizenship,
-       "must be based in", India-excluded, etc.)
-    2. The location FIELD itself names a specific country/region
-       (e.g. "Remote - US", "Remote (UK)") with no explicit "open
-       globally / worldwide / anywhere" language elsewhere to override
-       it. This catches the common case where a company never writes a
-       restriction sentence at all -- they just tag the req's location
-       and leave it at that, which in practice usually means hiring is
-       scoped to that country.
-    Explicit global-open language always overrides a nominal location tag."""
+    """'global' | 'restricted' | 'location_ambiguous':
+    - 'restricted': explicit restriction language anywhere in the text
+      (citizenship, "must be based in", India-excluded, etc.) -- always
+      a hard drop, no AI needed, this is a confident signal.
+    - 'location_ambiguous': the location FIELD names a specific
+      country/region (e.g. "Remote - US") with no explicit "open
+      globally/worldwide" language to confirm OR deny it either way.
+      This is common even for genuinely global roles -- companies often
+      tag a nominal HQ country for payroll/tax reasons without meaning
+      to restrict candidates. Too soft a signal to hard-drop by rules
+      alone, so this gets routed to the AI for a closer read instead.
+    - 'global': no restriction signal of any kind."""
     if RESTRICTION_RE.search(full_text):
         return "restricted"
     if raw_location and not GLOBAL_OPEN_RE.search(full_text):
         for _, pat in REGION_RES.items():
             if pat.search(raw_location):
-                return "restricted"
+                return "location_ambiguous"
     return "global"
 
 
@@ -211,6 +210,15 @@ def prefilter(jobs: list[dict]) -> list[dict]:
 
 
 def classify_with_rules(jobs: list[dict], companies: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """Stage 2: apply remote + global-availability + salary-bar rules.
+    A job must be (a) remote, (b) not explicitly restricted (and not
+    India-excluded), and (c) not explicitly stated below $60k USD, to be
+    kept. Company HQ location is irrelevant either way.
+    Returns (resolved, needs_ai) -- resolved jobs already have a
+    confident verdict on every axis and skip the AI step entirely.
+    Anything with a soft/ambiguous signal on either remote status or
+    location eligibility gets a second look from the AI rather than
+    being hard-dropped by rules alone."""
     industry_map = (companies or {}).get("industry_map", {})
     resolved, needs_ai = [], []
     for j in jobs:
@@ -219,7 +227,7 @@ def classify_with_rules(jobs: list[dict], companies: dict | None = None) -> tupl
         avail = availability(j.get('raw_location', ''), full_text)
         salary_range, salary_tier = extract_salary(full_text)
         j["remote_verdict"] = verdict
-        j["availability"] = avail
+        j["availability"] = "global" if avail == "location_ambiguous" else avail
         j["location_confidence"] = location_confidence(full_text)
         j["timezone_constrained"] = timezone_constrained(full_text)
         j["region_match"] = region_hint(full_text)
@@ -233,7 +241,7 @@ def classify_with_rules(jobs: list[dict], companies: dict | None = None) -> tupl
             continue
         if salary_tier == "below-60k":
             continue
-        if verdict == "yes":
+        if verdict == "yes" and avail == "global":
             j["classified_by"] = "rules"
             resolved.append(j)
         else:
