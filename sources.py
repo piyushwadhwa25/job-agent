@@ -10,6 +10,41 @@ import xml.etree.ElementTree as ET
 HEADERS = {"User-Agent": "job-agent/1.0 (personal job search tool)"}
 TIMEOUT = 15
 
+from bs4 import BeautifulSoup
+
+
+def fetch_job_page_location(url: str) -> str:
+    """Best-effort: fetch the actual job page and pull the rendered
+    location text (e.g. Greenhouse's '.job__location' div), since the
+    jobs API's location field is sometimes empty or too generic (just
+    "Remote") while the real page names a specific country. Only called
+    on a small number of already-title-matched candidates, not the full
+    firehose -- so the extra request per job is cheap in aggregate."""
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        el = soup.select_one(".job__location") or soup.select_one('[class*="location" i]')
+        if el:
+            return el.get_text(" ", strip=True)
+    except Exception as e:
+        print(f"  [page-location] fetch failed for {url}: {e}")
+    return ""
+
+
+def enrich_locations(jobs: list[dict], sources_to_enrich=("greenhouse",)) -> None:
+    """Mutates jobs in place: for candidates from sources known to have
+    unreliable API location fields, fetch the actual job page and fold
+    its rendered location text into raw_location as the authoritative
+    signal. Called AFTER title prefiltering so this only costs one
+    extra request per real candidate, not per raw listing."""
+    for j in jobs:
+        if j.get("source") not in sources_to_enrich:
+            continue
+        page_loc = fetch_job_page_location(j["url"])
+        if page_loc:
+            j["raw_location"] = f"{j.get('raw_location','')} {page_loc}".strip()
+
 
 def _to_date_str(dt):
     if dt is None:
@@ -180,6 +215,66 @@ def fetch_himalayas() -> list[dict]:
     return out
 
 
+def fetch_smartrecruiters(company_id: str) -> list[dict]:
+    """SmartRecruiters' public postings API. Structured location data
+    (country + remote flag) tends to be more reliable than freetext.
+    NOTE: the postings list endpoint doesn't include full description
+    text, only a summary -- restriction/salary detection on these relies
+    more heavily on the location field and title alone. Verify
+    company_id values at jobs.smartrecruiters.com/{id}."""
+    url = f"https://api.smartrecruiters.com/v1/companies/{company_id}/postings"
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, params={"limit": 100})
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"  [smartrecruiters:{company_id}] fetch failed: {e}")
+        return []
+    out = []
+    for j in data.get("content", []):
+        loc = j.get("location", {}) or {}
+        parts = []
+        if loc.get("remote"):
+            parts.append("Remote")
+        if loc.get("country"):
+            parts.append(loc["country"])
+        loc_text = " - ".join(parts) if parts else "Unknown"
+        out.append({
+            "source": "smartrecruiters", "company": company_id, "title": j.get("name", ""),
+            "url": j.get("ref", "") or f"https://jobs.smartrecruiters.com/{company_id}/{j.get('id','')}",
+            "raw_location": loc_text, "description": "",
+            "posted_date": _to_date_str(_parse_iso(j.get("releasedDate", ""))),
+        })
+    return out
+
+
+def fetch_workable(account: str) -> list[dict]:
+    """Workable's public jobs widget API.
+    NOTE: field names are best-effort -- check the live response shape
+    at https://apply.workable.com/api/v1/widget/accounts/{account}
+    if this comes back empty in logs."""
+    url = f"https://apply.workable.com/api/v1/widget/accounts/{account}"
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"  [workable:{account}] fetch failed: {e}")
+        return []
+    out = []
+    for j in data.get("jobs", []):
+        loc_parts = [j.get("city", ""), j.get("country", "")]
+        if j.get("telecommuting"):
+            loc_parts.insert(0, "Remote")
+        out.append({
+            "source": "workable", "company": account, "title": j.get("title", ""),
+            "url": j.get("url", ""), "raw_location": " ".join(p for p in loc_parts if p),
+            "description": j.get("description", ""),
+            "posted_date": _to_date_str(_parse_iso(j.get("published_on", ""))),
+        })
+    return out
+
+
 def fetch_all(companies: dict) -> list[dict]:
     jobs = []
     for slug in companies.get("greenhouse", []):
@@ -188,6 +283,10 @@ def fetch_all(companies: dict) -> list[dict]:
         jobs += fetch_lever(slug)
     for slug in companies.get("ashby", []):
         jobs += fetch_ashby(slug)
+    for slug in companies.get("smartrecruiters", []):
+        jobs += fetch_smartrecruiters(slug)
+    for slug in companies.get("workable", []):
+        jobs += fetch_workable(slug)
     jobs += fetch_remoteok()
     jobs += fetch_weworkremotely()
     jobs += fetch_himalayas()

@@ -17,6 +17,8 @@
     "ashby", "mercury", "linear", "vanta", "modernhealth", "ramp",
     "deel", "openai", "notion", "replit", "perplexityai"
   ],
+  "smartrecruiters": ["visa", "bosch", "ikea"],
+  "workable": [],
   "industry_map": {
     "gitlab": "devtools", "automattic": "cms/publishing", "zapier": "automation/saas",
     "doist": "productivity saas", "elastic": "devtools", "hashicorp": "devtools",

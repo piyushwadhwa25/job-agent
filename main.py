@@ -27,6 +27,9 @@ def main():
     candidates = filters.prefilter(raw_jobs)
     print(f"  {len(candidates)} pass title prefilter")
 
+    print("Enriching location data from job pages (greenhouse)...")
+    sources.enrich_locations(candidates, sources_to_enrich=("greenhouse",))
+
     resolved, needs_ai = filters.classify_with_rules(candidates, companies)
     print(f"  {len(resolved)} resolved by rules alone (no AI cost)")
     print(f"  {len(needs_ai)} ambiguous, sending to AI classifier")
