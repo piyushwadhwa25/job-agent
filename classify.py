@@ -87,6 +87,8 @@ def classify_batch(jobs: list[dict]) -> list[dict]:
                     continue
                 job["remote_verdict"] = "yes"
                 job["availability"] = "global"
+                full_text = f"{job.get('raw_location','')} {job.get('description','')}"
+                job["location_confidence"] = filters.location_confidence(full_text)
                 job["salary_range"] = final_salary_text
                 job["salary_tier"] = tier
                 job["industry"] = v.get("industry", "") or job.get("industry", "")

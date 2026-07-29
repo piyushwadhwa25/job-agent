@@ -53,6 +53,23 @@ GLOBAL_OPEN_RE = re.compile(
     re.IGNORECASE,
 )
 
+# India named explicitly as an eligible location -- the strongest possible
+# confirmation, since it removes all doubt.
+INDIA_EXPLICIT_RE = re.compile(
+    r"\b(india|apac|asia[\s-]?pacific)\b.{0,40}\b(eligible|welcome|open|hire|hiring)\b|"
+    r"\b(eligible|welcome|open|hire|hiring)\b.{0,40}\bindia\b",
+    re.IGNORECASE,
+)
+
+# Mentions of a global employer-of-record platform strongly imply the
+# company can legally hire in most countries including India, even if
+# India isn't named directly.
+EOR_PLATFORM_RE = re.compile(
+    r"\b(deel|oyster ?hr|remote\.com|papaya global|globalization partners|"
+    r"multiplier|velocity global|employer of record|\bEOR\b)\b",
+    re.IGNORECASE,
+)
+
 REMOTE_YES_RE = re.compile(
     r"\b(fully remote|remote[\s-]?first|100% remote|work from anywhere|"
     r"anywhere in|distributed team|async[\s-]?first)\b", re.IGNORECASE
@@ -149,6 +166,19 @@ def availability(raw_location: str, full_text: str) -> str:
     return "global"
 
 
+def location_confidence(full_text: str) -> str:
+    """'confirmed' | 'likely' | 'assumed' -- how solid the 'you can apply
+    from India' read is, for jobs that already passed availability().
+    'assumed' means: nothing restricted it, but nothing confirmed it
+    either -- worth a quick manual check before you invest time applying.
+    """
+    if INDIA_EXPLICIT_RE.search(full_text) or EOR_PLATFORM_RE.search(full_text):
+        return "confirmed"
+    if GLOBAL_OPEN_RE.search(full_text):
+        return "likely"
+    return "assumed"
+
+
 def remote_verdict(text: str) -> str:
     has_yes = bool(REMOTE_YES_RE.search(text))
     has_no = bool(REMOTE_NO_RE.search(text))
@@ -177,6 +207,7 @@ def classify_with_rules(jobs: list[dict], companies: dict | None = None) -> tupl
         salary_range, salary_tier = extract_salary(full_text)
         j["remote_verdict"] = verdict
         j["availability"] = avail
+        j["location_confidence"] = location_confidence(full_text)
         j["timezone_constrained"] = timezone_constrained(full_text)
         j["region_match"] = region_hint(full_text)
         j["salary_range"] = salary_range

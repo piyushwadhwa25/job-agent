@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     region_match TEXT,
     remote_verdict TEXT,
     availability TEXT,
+    location_confidence TEXT,
     timezone_constrained TEXT,
     salary_range TEXT,
     salary_tier TEXT,
@@ -38,7 +39,12 @@ def get_conn():
 
 def _migrate(conn):
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
-    new_cols = {"availability": "TEXT", "posted_date": "TEXT", "salary_tier": "TEXT"}
+    new_cols = {
+        "availability": "TEXT",
+        "posted_date": "TEXT",
+        "salary_tier": "TEXT",
+        "location_confidence": "TEXT",
+    }
     for col, coltype in new_cols.items():
         if col not in existing_cols:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {coltype}")
@@ -53,23 +59,27 @@ def upsert_job(conn, job: dict):
             """UPDATE jobs SET last_seen = ?,
                salary_range = COALESCE(NULLIF(?, ''), salary_range),
                salary_tier = COALESCE(NULLIF(?, ''), salary_tier),
+               location_confidence = COALESCE(NULLIF(?, ''), location_confidence),
                industry = COALESCE(NULLIF(?, ''), industry),
                posted_date = COALESCE(NULLIF(?, ''), posted_date)
                WHERE url = ?""",
             (now, job.get("salary_range", ""), job.get("salary_tier", ""),
-             job.get("industry", ""), job.get("posted_date", ""), job["url"]),
+             job.get("location_confidence", ""), job.get("industry", ""),
+             job.get("posted_date", ""), job["url"]),
         )
         return "seen_again"
     conn.execute(
         """INSERT INTO jobs
            (source, company, title, url, raw_location, region_match,
-            remote_verdict, availability, timezone_constrained, salary_range,
-            salary_tier, industry, posted_date, classified_by, first_seen, last_seen)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            remote_verdict, availability, location_confidence, timezone_constrained,
+            salary_range, salary_tier, industry, posted_date, classified_by,
+            first_seen, last_seen)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             job["source"], job["company"], job["title"], job["url"],
             job.get("raw_location", ""), job.get("region_match", ""),
             job.get("remote_verdict", "unclear"), job.get("availability", "global"),
+            job.get("location_confidence", "assumed"),
             job.get("timezone_constrained", "unknown"),
             job.get("salary_range", ""), job.get("salary_tier", "unspecified"),
             job.get("industry", ""), job.get("posted_date", ""),
