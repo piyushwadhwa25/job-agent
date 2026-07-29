@@ -126,9 +126,26 @@ def region_hint(text: str) -> str:
     return ", ".join(hits) if hits else ""
 
 
-def availability(text: str) -> str:
-    if RESTRICTION_RE.search(text):
+def availability(raw_location: str, full_text: str) -> str:
+    """'global' | 'restricted' -- whether the listing is open worldwide
+    or limited to one country/region. Two ways a job gets flagged
+    restricted:
+    1. Explicit restriction language anywhere in the text (citizenship,
+       "must be based in", India-excluded, etc.)
+    2. The location FIELD itself names a specific country/region
+       (e.g. "Remote - US", "Remote (UK)") with no explicit "open
+       globally / worldwide / anywhere" language elsewhere to override
+       it. This catches the common case where a company never writes a
+       restriction sentence at all -- they just tag the req's location
+       and leave it at that, which in practice usually means hiring is
+       scoped to that country.
+    Explicit global-open language always overrides a nominal location tag."""
+    if RESTRICTION_RE.search(full_text):
         return "restricted"
+    if raw_location and not GLOBAL_OPEN_RE.search(full_text):
+        for _, pat in REGION_RES.items():
+            if pat.search(raw_location):
+                return "restricted"
     return "global"
 
 
@@ -156,7 +173,7 @@ def classify_with_rules(jobs: list[dict], companies: dict | None = None) -> tupl
     for j in jobs:
         full_text = f"{j.get('raw_location','')} {j.get('description','')}"
         verdict = remote_verdict(full_text)
-        avail = availability(full_text)
+        avail = availability(j.get('raw_location', ''), full_text)
         salary_range, salary_tier = extract_salary(full_text)
         j["remote_verdict"] = verdict
         j["availability"] = avail

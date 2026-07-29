@@ -16,18 +16,27 @@ ONLY wants:
 - fully remote roles (hybrid/onsite are disqualifying; timezone overlap
   requirements are fine as long as the role itself is remote)
 - globally open to apply from anywhere, INCLUDING India -- the company's
-  HQ location (e.g. "based in USA" or "based in Europe") does NOT
-  disqualify a role. Only reject if the listing explicitly restricts who
-  can apply to one specific country/region that excludes India (e.g.
-  "must be a US citizen", "only open to candidates based in the UK",
-  "we do not currently hire in India"). If nothing is said about
-  candidate location eligibility, treat it as globally open.
+  HQ location does NOT disqualify a role by itself. But restriction can
+  show up in TWO ways, both count as disqualifying:
+  (a) explicit language: "must be a US citizen", "only open to candidates
+      based in the UK", "we do not currently hire in India"
+  (b) the location field itself simply names ONE country/region (e.g.
+      "Remote - US", "Remote (UK)") with nothing elsewhere saying it's
+      open globally/worldwide/anywhere. Companies usually don't write a
+      restriction sentence at all -- they just tag the location field
+      and leave it there, and that alone means it's scoped to that
+      country. Treat a bare single-country location tag as restricted
+      UNLESS something explicitly says "open globally/worldwide/anywhere"
+      or similar. Do not assume a single-country location tag is global
+      just because no citizenship sentence was written.
 
 For each listing given, also try to extract, ONLY if explicitly stated in
 the text (never guess or estimate):
 - salary_range: the compensation range as written (e.g. "$120,000-$150,000"),
   or "" if not mentioned
-- industry: a short 1-3 word industry label if inferable, or "" if not
+- industry: a short 1-3 word industry label for the company if inferable
+  from the text (e.g. "fintech", "healthcare", "e-commerce"), or "" if
+  not inferable
 
 Respond with ONLY a JSON array (no prose, no markdown fences), one object
 per listing in the same order, each with exactly these fields:
@@ -35,8 +44,7 @@ per listing in the same order, each with exactly these fields:
  "globally_open": "yes"|"no", "salary_range": "...", "industry": "..."}
 
 Base your judgment only on the text given. If genuinely unclear on remote
-status, prefer "no". For globally_open specifically, default to "yes"
-unless an explicit restriction is stated."""
+status, prefer "no"."""
 
 
 def _build_batch_prompt(batch: list[dict]) -> str:
