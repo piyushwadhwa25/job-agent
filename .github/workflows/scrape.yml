@@ -1,0 +1,35 @@
+name: Scrape senior product jobs
+
+on:
+  schedule:
+    # Every Monday 06:00 UTC. Change to '0 6 * * *' for daily.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 main.py
+
+      - name: Commit updated database and results page
+        run: |
+          git config user.name "job-agent-bot"
+          git config user.email "actions@github.com"
+          git add jobs.db docs/
+          git diff --staged --quiet || git commit -m "Update jobs.db and results page [automated]"
+          git push
