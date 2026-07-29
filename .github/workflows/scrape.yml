@@ -2,9 +2,9 @@ name: Scrape senior product jobs
 
 on:
   schedule:
-    # Every Monday 06:00 UTC. Change to '0 6 * * *' for daily.
-    - cron: "0 6 * * 1"
-  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+    - cron: "0 6 * * *"
+    - cron: "0 18 * * *"
+  workflow_dispatch: {}
 
 jobs:
   scrape:

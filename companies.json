@@ -3,14 +3,19 @@
     "gitlab", "automattic", "zapier", "doist", "elastic", "hashicorp",
     "webflow", "canonical", "invisiontech", "articulate", "clevertech",
     "close", "gitbook", "postscript", "loom", "figma", "notion",
-    "airtable", "linear", "vercel", "retool"
+    "airtable", "linear", "vercel", "retool", "coinbase", "reddit",
+    "instacart", "robinhood", "twitch", "pinterest", "asana", "confluent",
+    "checkr", "brex", "affirm", "carta", "gusto", "docker", "sentry",
+    "circleci", "auth0", "segment", "datadog"
   ],
   "lever": [
     "netlify", "clevertech", "toggl", "buffer", "helpscout",
-    "remote-com", "supabase", "planetscale"
+    "remote-com", "supabase", "planetscale", "shopify", "eventbrite",
+    "box", "plaid", "attentive", "grammarly", "postman"
   ],
   "ashby": [
-    "ashby", "mercury", "linear", "vanta", "modernhealth"
+    "ashby", "mercury", "linear", "vanta", "modernhealth", "ramp",
+    "deel", "openai", "notion", "replit", "perplexityai"
   ],
   "industry_map": {
     "gitlab": "devtools", "automattic": "cms/publishing", "zapier": "automation/saas",
@@ -22,7 +27,18 @@
     "vercel": "devtools", "retool": "devtools", "netlify": "devtools",
     "toggl": "productivity saas", "buffer": "marketing saas", "helpscout": "support saas",
     "remote-com": "hr/payroll", "supabase": "devtools", "planetscale": "devtools",
-    "mercury": "fintech", "vanta": "security saas", "modernhealth": "healthtech"
+    "mercury": "fintech", "vanta": "security saas", "modernhealth": "healthtech",
+    "coinbase": "crypto/fintech", "reddit": "social media", "instacart": "e-commerce/delivery",
+    "robinhood": "fintech", "twitch": "streaming/media", "pinterest": "social media",
+    "asana": "productivity saas", "confluent": "devtools/data", "checkr": "hr tech",
+    "brex": "fintech", "affirm": "fintech", "carta": "fintech/legal",
+    "gusto": "hr/payroll", "docker": "devtools", "sentry": "devtools",
+    "circleci": "devtools", "auth0": "security/devtools", "segment": "data/devtools",
+    "datadog": "devtools", "shopify": "e-commerce", "eventbrite": "events/marketplace",
+    "box": "cloud storage/saas", "plaid": "fintech", "attentive": "marketing saas",
+    "grammarly": "productivity saas", "postman": "devtools", "ramp": "fintech",
+    "deel": "hr/payroll", "openai": "ai/ml", "replit": "devtools",
+    "perplexityai": "ai/ml"
   },
-  "notes": "Slugs are the company's ATS board identifier, not always the same as their brand name. Verify by checking https://boards.greenhouse.io/{slug}, https://jobs.lever.co/{slug}, or https://jobs.ashbyhq.com/{slug} in a browser. Add/remove freely -- this list is a starting point, not exhaustive. Add an entry to industry_map (lowercase slug -> industry) for any company you add, so industry fills in for free without an AI call."
+  "notes": "Slugs are the company's ATS board identifier, verify at boards.greenhouse.io/{slug}, jobs.lever.co/{slug}, or jobs.ashbyhq.com/{slug} before relying on them. WeWorkRemotely and Himalayas in sources.py cover hundreds more companies automatically and are the main lever for daily volume."
 }

@@ -25,7 +25,7 @@ def main():
     print(f"  {len(raw_jobs)} raw listings fetched")
 
     candidates = filters.prefilter(raw_jobs)
-    print(f"  {len(candidates)} pass title + region prefilter")
+    print(f"  {len(candidates)} pass title prefilter")
 
     resolved, needs_ai = filters.classify_with_rules(candidates, companies)
     print(f"  {len(resolved)} resolved by rules alone (no AI cost)")

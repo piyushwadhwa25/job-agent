@@ -13,15 +13,18 @@ CREATE TABLE IF NOT EXISTS jobs (
     title TEXT NOT NULL,
     url TEXT NOT NULL UNIQUE,
     raw_location TEXT,
-    region_match TEXT,          -- which of europe/usa/singapore/uae matched
-    remote_verdict TEXT,        -- 'yes' | 'no' | 'unclear'
-    timezone_constrained TEXT,  -- 'yes' | 'no' | 'unknown' (informational only, not a filter)
-    salary_range TEXT,          -- as stated in the listing, if any
+    region_match TEXT,
+    remote_verdict TEXT,
+    availability TEXT,
+    timezone_constrained TEXT,
+    salary_range TEXT,
+    salary_tier TEXT,
     industry TEXT,
-    classified_by TEXT,         -- 'rules' | 'ai' | null
+    posted_date TEXT,
+    classified_by TEXT,
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL,
-    status TEXT DEFAULT 'new'   -- 'new' | 'reviewed' | 'applied' | 'ignored'
+    status TEXT DEFAULT 'new'
 );
 """
 
@@ -29,36 +32,47 @@ CREATE TABLE IF NOT EXISTS jobs (
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.execute(SCHEMA)
+    _migrate(conn)
     return conn
 
 
+def _migrate(conn):
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    new_cols = {"availability": "TEXT", "posted_date": "TEXT", "salary_tier": "TEXT"}
+    for col, coltype in new_cols.items():
+        if col not in existing_cols:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {coltype}")
+    conn.commit()
+
+
 def upsert_job(conn, job: dict):
-    """Insert a job or refresh last_seen if it already exists (by URL)."""
     now = datetime.now(timezone.utc).isoformat()
-    existing = conn.execute(
-        "SELECT id FROM jobs WHERE url = ?", (job["url"],)
-    ).fetchone()
+    existing = conn.execute("SELECT id FROM jobs WHERE url = ?", (job["url"],)).fetchone()
     if existing:
         conn.execute(
             """UPDATE jobs SET last_seen = ?,
                salary_range = COALESCE(NULLIF(?, ''), salary_range),
-               industry = COALESCE(NULLIF(?, ''), industry)
+               salary_tier = COALESCE(NULLIF(?, ''), salary_tier),
+               industry = COALESCE(NULLIF(?, ''), industry),
+               posted_date = COALESCE(NULLIF(?, ''), posted_date)
                WHERE url = ?""",
-            (now, job.get("salary_range", ""), job.get("industry", ""), job["url"]),
+            (now, job.get("salary_range", ""), job.get("salary_tier", ""),
+             job.get("industry", ""), job.get("posted_date", ""), job["url"]),
         )
         return "seen_again"
     conn.execute(
         """INSERT INTO jobs
            (source, company, title, url, raw_location, region_match,
-            remote_verdict, timezone_constrained, salary_range, industry,
-            classified_by, first_seen, last_seen)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            remote_verdict, availability, timezone_constrained, salary_range,
+            salary_tier, industry, posted_date, classified_by, first_seen, last_seen)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             job["source"], job["company"], job["title"], job["url"],
             job.get("raw_location", ""), job.get("region_match", ""),
-            job.get("remote_verdict", "unclear"),
+            job.get("remote_verdict", "unclear"), job.get("availability", "global"),
             job.get("timezone_constrained", "unknown"),
-            job.get("salary_range", ""), job.get("industry", ""),
+            job.get("salary_range", ""), job.get("salary_tier", "unspecified"),
+            job.get("industry", ""), job.get("posted_date", ""),
             job.get("classified_by"), now, now,
         ),
     )
@@ -68,7 +82,7 @@ def upsert_job(conn, job: dict):
 def export_new_as_dicts(conn):
     cur = conn.execute(
         "SELECT company, title, url, raw_location, region_match, remote_verdict, "
-        "salary_range, industry, timezone_constrained, first_seen "
+        "salary_range, salary_tier, industry, posted_date, timezone_constrained, first_seen "
         "FROM jobs WHERE status='new' ORDER BY first_seen DESC"
     )
     cols = [d[0] for d in cur.description]

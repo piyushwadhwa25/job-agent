@@ -1,13 +1,15 @@
-"""Exports jobs.db into a single static HTML page (docs/index.html).
-Zero AI cost, zero extra dependencies. GitHub Pages serves this
-directly from the repo, so you get a URL you can open on your phone
-with no setup beyond one toggle in repo settings.
-"""
+"""Exports jobs.db into a single static HTML page (docs/index.html)."""
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 import db
 
 OUT_PATH = Path(__file__).parent / "docs" / "index.html"
+
+TIER_ORDER = {"100k+": 0, "60k-100k": 1, "non-usd": 2, "unspecified": 3, "": 3}
+TIER_LABELS = {"100k+": "$100k+", "60k-100k": "$60-100k", "non-usd": "non-USD",
+                "unspecified": "not listed", "": "not listed"}
+TIER_CLASS = {"100k+": "tier-high", "60k-100k": "tier-mid", "non-usd": "tier-nonusd",
+              "unspecified": "tier-unk", "": "tier-unk"}
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -29,22 +31,25 @@ TEMPLATE = """<!DOCTYPE html>
   .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }}
   .rules {{ background: #1e3a2a; color: #7fd99f; }}
   .ai {{ background: #2a2440; color: #b3a1ff; }}
+  .fresh {{ background: #402a1e; color: #ffb37f; font-weight: 600; }}
+  .tier-high {{ background: #1e3a2a; color: #7fd99f; font-weight: 600; }}
+  .tier-mid {{ background: #2f3a1e; color: #c9d97f; }}
+  .tier-nonusd {{ background: #1e2f3a; color: #7fc0d9; }}
+  .tier-unk {{ background: #2a2a2a; color: #999; }}
   input[type=text] {{ width: 100%; padding: 8px; margin-bottom: 12px; border-radius: 6px;
          border: 1px solid #2a2d35; background: #171a21; color: #e6e6e6; box-sizing: border-box; }}
-  @media (max-width: 600px) {{
-    .hide-mobile {{ display: none; }}
-  }}
+  @media (max-width: 600px) {{ .hide-mobile {{ display: none; }} }}
 </style>
 </head>
 <body>
-<h1>Senior Product Roles — Fully Remote</h1>
-<div class="meta">{count} listings · last updated {updated}</div>
+<h1>Senior Product Roles — Fully Remote, Global</h1>
+<div class="meta">{count} listings · last updated {updated} · sorted by salary tier, then recency</div>
 <input type="text" id="filter" placeholder="Filter by company, title, or industry...">
 <table id="jobs">
 <thead>
 <tr>
-  <th>Company</th><th>Title</th><th class="hide-mobile">Region</th>
-  <th>Salary</th><th class="hide-mobile">Industry</th><th class="hide-mobile">Source</th>
+  <th>Company</th><th>Title</th><th>Salary</th><th>Posted</th>
+  <th class="hide-mobile">Region</th><th class="hide-mobile">Industry</th><th class="hide-mobile">Source</th>
 </tr>
 </thead>
 <tbody>
@@ -66,34 +71,62 @@ document.getElementById('filter').addEventListener('input', function() {{
 ROW_TEMPLATE = """<tr>
   <td>{company}</td>
   <td><a href="{url}" target="_blank">{title}</a> <span class="badge {classified_by}">{classified_by}</span></td>
+  <td><span class="badge {tier_class}">{tier_label}</span>{salary_detail}</td>
+  <td>{posted}{fresh_badge}</td>
   <td class="hide-mobile">{region}</td>
-  <td>{salary}</td>
   <td class="hide-mobile">{industry}</td>
   <td class="hide-mobile">{source}</td>
 </tr>"""
 
 
+def _date_ord(s):
+    try:
+        return date.fromisoformat(s).toordinal()
+    except Exception:
+        return 0
+
+
 def build():
     conn = db.get_conn()
     rows = conn.execute(
-        "SELECT company, title, url, region_match, salary_range, industry, "
-        "source, classified_by FROM jobs WHERE status != 'ignored' "
-        "ORDER BY first_seen DESC"
+        "SELECT company, title, url, region_match, salary_range, salary_tier, "
+        "industry, source, classified_by, posted_date, first_seen FROM jobs "
+        "WHERE status != 'ignored'"
     ).fetchall()
     conn.close()
 
-    row_html = "\n".join(
-        ROW_TEMPLATE.format(
-            company=r[0], title=r[1], url=r[2], region=r[3] or "-",
-            salary=r[4] or "-", industry=r[5] or "-", source=r[6],
-            classified_by=r[7] or "rules",
-        )
-        for r in rows
-    )
+    today = datetime.now(timezone.utc).date()
+    rows = sorted(rows, key=lambda r: (
+        TIER_ORDER.get(r[5] or "", 3),
+        0 if (r[9] or "") else 1,
+        -_date_ord(r[9] or ""),
+    ))
+
+    row_html = []
+    for r in rows:
+        company, title, url, region, salary_range, tier, industry, source, \
+            classified_by, posted_date_str, first_seen = r
+        tier = tier or "unspecified"
+        fresh_badge = ""
+        if posted_date_str:
+            try:
+                posted = date.fromisoformat(posted_date_str)
+                if (today - posted).days <= 1:
+                    fresh_badge = ' <span class="badge fresh">new</span>'
+            except ValueError:
+                pass
+        salary_detail = f" {salary_range}" if salary_range else ""
+        row_html.append(ROW_TEMPLATE.format(
+            company=company, title=title, url=url, region=region or "-",
+            industry=industry or "-", source=source, classified_by=classified_by or "rules",
+            tier_class=TIER_CLASS.get(tier, "tier-unk"), tier_label=TIER_LABELS.get(tier, "not listed"),
+            salary_detail=salary_detail, posted=posted_date_str or "-", fresh_badge=fresh_badge,
+        ))
+    row_html = "\n".join(row_html)
+
     html = TEMPLATE.format(
-        count=len(rows),
-        updated=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        rows=row_html or "<tr><td colspan=6>No listings yet.</td></tr>",
+        count=len(rows), updated=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        rows=row_html or "<tr><td colspan=7>No listings yet.</td></tr>",
     )
     OUT_PATH.parent.mkdir(exist_ok=True)
     OUT_PATH.write_text(html)

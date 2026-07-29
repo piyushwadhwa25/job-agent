@@ -13,7 +13,6 @@ TITLE_PATTERNS = [
 ]
 TITLE_RE = re.compile("|".join(TITLE_PATTERNS), re.IGNORECASE)
 
-# Explicit exclusions to cut false positives (e.g. "Senior Product Designer")
 TITLE_EXCLUDE_RE = re.compile(
     r"\b(designer|engineer|marketing|sales|analyst|data scientist|"
     r"customer success|support)\b", re.IGNORECASE
@@ -27,6 +26,32 @@ REGION_PATTERNS = {
     "uae": r"\b(uae\b|united arab emirates|dubai|abu dhabi)\b",
 }
 REGION_RES = {k: re.compile(v, re.IGNORECASE) for k, v in REGION_PATTERNS.items()}
+
+RESTRICTION_RE = re.compile(
+    r"\b(must be (?:based|located|residing) in the (?:united states|u\.s\.|usa|uk|"
+    r"united kingdom|eu|europe)\b|"
+    r"(?:us|usa|uk|eu) citizens? only\b|"
+    r"must be authorized to work in the (?:united states|u\.s\.|usa|uk|united kingdom)\b|"
+    r"(?:only (?:accepting|considering) candidates|open only to residents) "
+    r"(?:based |located )?in\b|"
+    r"local candidates only\b|"
+    r"candidates must (?:currently )?reside in\b|"
+    r"this role is (?:only )?(?:open to|available to) (?:us|usa|uk|eu)[\s-]?based\b|"
+    r"(?:not|unable to|cannot|can't|currently unable to) (?:currently )?hir(?:e|ing) "
+    r"(?:in|from) india\b|"
+    r"excluding india\b|excluding candidates (?:based |located )?in india\b|"
+    r"not available (?:to|for) (?:candidates )?(?:in |from )?india\b|"
+    r"except india\b|"
+    r"we do not (?:currently )?hire in india\b)",
+    re.IGNORECASE,
+)
+
+GLOBAL_OPEN_RE = re.compile(
+    r"\b(work from anywhere|remote[\s-]?global|open to (?:all countries|"
+    r"candidates worldwide|global candidates)|worldwide|anywhere in the world|"
+    r"no location restriction|globally distributed)\b",
+    re.IGNORECASE,
+)
 
 REMOTE_YES_RE = re.compile(
     r"\b(fully remote|remote[\s-]?first|100% remote|work from anywhere|"
@@ -42,19 +67,52 @@ TZ_CONSTRAINT_RE = re.compile(
     re.IGNORECASE
 )
 
-# Common ways salary ranges show up in job postings (kept deliberately loose
-# -- false negatives here just mean an empty column, not a wrong filter).
-SALARY_RE = re.compile(
-    r"(?:USD|SGD|EUR|GBP|AED|\$|€|£)\s?\d[\d,]{2,}(?:\s?[kK])?"
+SALARY_WITH_CURRENCY_RE = re.compile(
+    r"(?P<cur>USD|SGD|EUR|GBP|AED|\$|€|£)\s?"
+    r"(?P<low>\d[\d,]{1,})(?:\s?[kK])?"
     r"\s*(?:-|–|to)\s*"
-    r"(?:USD|SGD|EUR|GBP|AED|\$|€|£)?\s?\d[\d,]{2,}(?:\s?[kK])?"
-    r"|\d{2,3}[kK]\s*(?:-|–|to)\s*\d{2,3}[kK]"
+    r"(?:USD|SGD|EUR|GBP|AED|\$|€|£)?\s?"
+    r"(?P<high>\d[\d,]{1,})(?:\s?[kK])?"
+)
+SALARY_BARE_K_RE = re.compile(
+    r"(?P<low>\d{2,3})[kK]\s*(?:-|–|to)\s*(?P<high>\d{2,3})[kK]"
 )
 
+USD_MARKERS = {"USD", "$"}
 
-def extract_salary(text: str) -> str:
-    m = SALARY_RE.search(text)
-    return m.group(0).strip() if m else ""
+
+def extract_salary(text: str) -> tuple[str, str]:
+    """Returns (display_string, tier). tier is one of:
+    '100k+' | '60k-100k' | 'below-60k' | 'non-usd' | 'unspecified'
+    No currency conversion is ever performed."""
+    m = SALARY_WITH_CURRENCY_RE.search(text)
+    if m:
+        display = m.group(0).strip()
+        cur = m.group("cur")
+        low_raw, high_raw = m.group("low"), m.group("high")
+        is_k = bool(re.search(r"\dk\b", display, re.IGNORECASE))
+        low = int(low_raw.replace(",", "")) * (1000 if is_k and len(low_raw) <= 3 else 1)
+        high = int(high_raw.replace(",", "")) * (1000 if is_k and len(high_raw) <= 3 else 1)
+        if cur.upper() in USD_MARKERS or cur == "$":
+            top = max(low, high)
+            if top >= 100_000:
+                return display, "100k+"
+            if top >= 60_000:
+                return display, "60k-100k"
+            return display, "below-60k"
+        return display, "non-usd"
+
+    m2 = SALARY_BARE_K_RE.search(text)
+    if m2:
+        display = m2.group(0).strip()
+        high = int(m2.group("high")) * 1000
+        if high >= 100_000:
+            return display, "100k+"
+        if high >= 60_000:
+            return display, "60k-100k"
+        return display, "below-60k"
+
+    return "", "unspecified"
 
 
 def title_matches(title: str) -> bool:
@@ -63,16 +121,18 @@ def title_matches(title: str) -> bool:
     return bool(TITLE_RE.search(title))
 
 
-def region_match(text: str) -> str | None:
-    """Return first matching region, or None."""
-    for region, pat in REGION_RES.items():
-        if pat.search(text):
-            return region
-    return None
+def region_hint(text: str) -> str:
+    hits = [region for region, pat in REGION_RES.items() if pat.search(text)]
+    return ", ".join(hits) if hits else ""
+
+
+def availability(text: str) -> str:
+    if RESTRICTION_RE.search(text):
+        return "restricted"
+    return "global"
 
 
 def remote_verdict(text: str) -> str:
-    """'yes' | 'no' | 'unclear' based on plain keyword rules."""
     has_yes = bool(REMOTE_YES_RE.search(text))
     has_no = bool(REMOTE_NO_RE.search(text))
     if has_yes and not has_no:
@@ -83,48 +143,38 @@ def remote_verdict(text: str) -> str:
 
 
 def timezone_constrained(text: str) -> str:
-    """'yes' | 'unknown' -- only flags explicit constraints; absence of
-    a match does NOT mean unconstrained, hence 'unknown' not 'no'."""
     return "yes" if TZ_CONSTRAINT_RE.search(text) else "unknown"
 
 
 def prefilter(jobs: list[dict]) -> list[dict]:
-    """Stage 1: keep only jobs whose title looks like a senior product
-    role AND whose location text mentions one of our target regions."""
-    kept = []
-    for j in jobs:
-        if not title_matches(j["title"]):
-            continue
-        haystack = f"{j.get('raw_location','')} {j.get('description','')[:500]}"
-        region = region_match(haystack)
-        if not region:
-            continue
-        j["region_match"] = region
-        kept.append(j)
-    return kept
+    return [j for j in jobs if title_matches(j["title"])]
 
 
 def classify_with_rules(jobs: list[dict], companies: dict | None = None) -> tuple[list[dict], list[dict]]:
-    """Stage 2: apply remote rules. Focus is fully-remote only -- timezone
-    is captured as metadata (still shown in the table) but no longer
-    gates whether a listing is kept.
-    Returns (resolved, needs_ai) -- resolved jobs already have a clear
-    verdict and skip the AI step entirely."""
     industry_map = (companies or {}).get("industry_map", {})
     resolved, needs_ai = [], []
     for j in jobs:
         full_text = f"{j.get('raw_location','')} {j.get('description','')}"
         verdict = remote_verdict(full_text)
+        avail = availability(full_text)
+        salary_range, salary_tier = extract_salary(full_text)
         j["remote_verdict"] = verdict
-        j["timezone_constrained"] = timezone_constrained(full_text)  # informational only
-        j["salary_range"] = extract_salary(full_text)
+        j["availability"] = avail
+        j["timezone_constrained"] = timezone_constrained(full_text)
+        j["region_match"] = region_hint(full_text)
+        j["salary_range"] = salary_range
+        j["salary_tier"] = salary_tier
         j["industry"] = industry_map.get(j.get("company", "").lower(), "")
 
         if verdict == "no":
-            continue  # not fully remote, drop entirely
+            continue
+        if avail == "restricted":
+            continue
+        if salary_tier == "below-60k":
+            continue
         if verdict == "yes":
             j["classified_by"] = "rules"
             resolved.append(j)
         else:
-            needs_ai.append(j)  # 'unclear' -- worth a second look
+            needs_ai.append(j)
     return resolved, needs_ai
