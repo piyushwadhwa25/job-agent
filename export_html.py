@@ -97,6 +97,7 @@ def build():
     )
     OUT_PATH.parent.mkdir(exist_ok=True)
     OUT_PATH.write_text(html)
+    (OUT_PATH.parent / ".nojekyll").touch()
     print(f"Wrote {OUT_PATH} ({len(rows)} rows)")
 
 
