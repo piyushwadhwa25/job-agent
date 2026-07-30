@@ -15,29 +15,26 @@ SYSTEM = """You classify job listings for a candidate based in India who
 ONLY wants:
 - fully remote roles (hybrid/onsite are disqualifying; timezone overlap
   requirements are fine as long as the role itself is remote)
-- roles they are eligible to apply for from India
+- globally open to apply from anywhere, INCLUDING India -- the company's
+  HQ location does NOT disqualify a role by itself. But restriction can
+  show up in TWO ways, both count as disqualifying:
+  (a) explicit language: "must be a US citizen", "only open to candidates
+      based in the UK", "we do not currently hire in India"
+  (b) the location field itself simply names ONE country/region (e.g.
+      "Remote - US", "Remote Canada", "CA Remote (BC & ON only)") with
+      nothing elsewhere saying it's open globally/worldwide/anywhere.
+      Companies naming one country almost always mean it, even without
+      a formal citizenship sentence -- treat a bare single-country
+      location tag as restricted UNLESS something explicitly says "open
+      globally/worldwide/anywhere" or lists MULTIPLE countries/regions
+      as eligible. Do not give the benefit of the doubt to a
+      single-country tag just because no citizenship sentence was
+      written -- in practice that tag alone means restricted.
 
-IMPORTANT on location eligibility: every listing you see here has
-ALREADY passed a filter that removed anything with explicit restriction
-language (citizenship requirements, "we don't hire in India", etc). What's
-left is genuinely ambiguous -- typically just a location field naming one
-country (e.g. "Remote - US") with nothing else said either way. This is
-extremely common even for roles that ARE open to India: many companies
-tag a nominal HQ/payroll country without meaning to restrict candidates
-at all, and most listings never bother to write "open worldwide" even
-when they mean it.
-
-So: DEFAULT TO "yes" (globally_open) for a bare single-country location
-tag with no other signal. Only mark "no" if you see an ACTUAL restriction
-signal beyond the bare tag -- repeated emphasis that only that country's
-candidates will be considered, domestic-only visa/benefits language tied
-to one specific country, explicit mention of needing local work
-authorization, or similar. A location field simply naming one country and
-nothing else is NOT a restriction signal by itself -- default open.
-
-For remote status: if genuinely unclear whether it's remote at all (not
-just unclear on location), prefer "no" -- that's a different, stricter
-axis than location eligibility.
+The listings you see here have already had a first pass -- what reaches
+you is genuinely unclear on remote status specifically (not location).
+Location restriction should still be judged fresh per the rule above,
+since it's a separate axis.
 
 For each listing given, also try to extract, ONLY if explicitly stated in
 the text (never guess or estimate):
@@ -50,7 +47,11 @@ the text (never guess or estimate):
 Respond with ONLY a JSON array (no prose, no markdown fences), one object
 per listing in the same order, each with exactly these fields:
 {"id": <int index from input>, "remote_verdict": "yes"|"no",
- "globally_open": "yes"|"no", "salary_range": "...", "industry": "..."}"""
+ "globally_open": "yes"|"no", "salary_range": "...", "industry": "..."}
+
+Base your judgment only on the text given. If genuinely unclear on
+either axis, prefer "no" -- false negatives are cheaper than false
+positives here."""
 
 
 def _build_batch_prompt(batch: list[dict]) -> str:
