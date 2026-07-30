@@ -13,6 +13,13 @@
     "ashby", "mercury", "linear", "vanta", "ramp", "deel", "openai",
     "notion", "replit"
   ],
+  "jsonld_sources": [
+    {"name": "remote_com", "url": "https://remote.com/jobs?query=product+manager"},
+    {"name": "arc_dev", "url": "https://arc.dev/remote-jobs?jobRoles=product_manager"},
+    {"name": "braintrust", "url": "https://www.usebraintrust.com/job-boards/product-management"},
+    {"name": "crossover", "url": "https://www.crossover.com/jobs/product-management/in"},
+    {"name": "jobgether", "url": "https://jobgether.com/remote-jobs/india"}
+  ],
   "industry_map": {
     "gitlab": "devtools", "elastic": "devtools", "webflow": "no-code/saas",
     "canonical": "devtools", "postscript": "marketing saas", "figma": "design saas",

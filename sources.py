@@ -6,6 +6,9 @@ else "".
 """
 import requests
 import time
+import json
+import urllib.robotparser
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import xml.etree.ElementTree as ET
@@ -13,6 +16,141 @@ from bs4 import BeautifulSoup
 
 HEADERS = {"User-Agent": "job-agent/1.0 (personal job search tool)"}
 TIMEOUT = 15
+
+_ROBOTS_CACHE: dict = {}
+
+
+def _robots_allows(url: str) -> tuple[bool, float]:
+    """Checks robots.txt for the URL's domain AT RUNTIME -- respects
+    whatever the site currently allows, rather than a one-time manual
+    check that could go stale. Cached per-domain so a run only fetches
+    robots.txt once per site, not once per URL. Returns
+    (allowed, crawl_delay_seconds). If robots.txt can't be fetched at
+    all, we're conservative and treat that as NOT allowed."""
+    parsed = urlparse(url)
+    domain = f"{parsed.scheme}://{parsed.netloc}"
+    if domain not in _ROBOTS_CACHE:
+        rp = urllib.robotparser.RobotFileParser()
+        rp.set_url(f"{domain}/robots.txt")
+        try:
+            rp.read()
+            _ROBOTS_CACHE[domain] = rp
+        except Exception as e:
+            print(f"  [robots.txt] couldn't fetch for {domain}, skipping to be safe: {e}")
+            _ROBOTS_CACHE[domain] = None
+    rp = _ROBOTS_CACHE[domain]
+    if rp is None:
+        return False, 0
+    allowed = rp.can_fetch(HEADERS["User-Agent"], url)
+    delay = rp.crawl_delay(HEADERS["User-Agent"]) or 1.0
+    return allowed, delay
+
+
+def fetch_jobpostings_via_jsonld(page_url: str, source_name: str) -> list[dict]:
+    """Generic scraper for sites WITHOUT a public API, used only where
+    robots.txt explicitly allows it. Extracts schema.org JobPosting
+    structured data (JSON-LD) that many job boards embed for Google for
+    Jobs SEO -- this is a documented, standardized format, not
+    site-specific CSS-class guessing, and critically it often includes
+    STRUCTURED applicantLocationRequirements (actual country list) and
+    baseSalary, which is more reliable than anything we can parse from
+    free text. If a given page doesn't embed this markup, this simply
+    returns an empty list -- not every site does, and we don't fall back
+    to guessing HTML structure for these (too fragile, too easy to
+    silently break)."""
+    allowed, delay = _robots_allows(page_url)
+    if not allowed:
+        print(f"  [{source_name}] robots.txt disallows {page_url}, skipping")
+        return []
+    time.sleep(delay)
+
+    try:
+        r = requests.get(page_url, headers=HEADERS, timeout=TIMEOUT)
+        r.raise_for_status()
+    except Exception as e:
+        print(f"  [{source_name}] fetch failed for {page_url}: {e}")
+        return []
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    out = []
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except Exception:
+            continue
+        candidates = data if isinstance(data, list) else [data]
+        for item in candidates:
+            if not isinstance(item, dict) or item.get("@type") != "JobPosting":
+                continue
+            loc_reqs = item.get("applicantLocationRequirements", [])
+            if isinstance(loc_reqs, dict):
+                loc_reqs = [loc_reqs]
+            countries = [c.get("name", "") for c in loc_reqs if isinstance(c, dict)]
+            is_telecommute = item.get("jobLocationType") == "TELECOMMUTE"
+
+            raw_location = ", ".join(countries) if countries else ("Remote" if is_telecommute else "")
+            if is_telecommute and raw_location and "remote" not in raw_location.lower():
+                raw_location = f"Remote - {raw_location}"
+
+            salary_text = ""
+            base_salary = item.get("baseSalary", {})
+            if isinstance(base_salary, dict):
+                val = base_salary.get("value", {})
+                if isinstance(val, dict) and (val.get("minValue") or val.get("maxValue")):
+                    cur = base_salary.get("currency", "")
+                    salary_text = f"{cur} {val.get('minValue','')}-{val.get('maxValue','')}"
+
+            description = item.get("description", "") or ""
+            if salary_text:
+                description = f"{description} Salary: {salary_text}."
+
+            org = item.get("hiringOrganization", {})
+            company = org.get("name", "") if isinstance(org, dict) else ""
+
+            out.append({
+                "source": source_name,
+                "company": company,
+                "title": item.get("title", ""),
+                "url": item.get("url", "") or page_url,
+                "raw_location": raw_location,
+                "description": description,
+                "posted_date": (item.get("datePosted", "") or "")[:10],
+            })
+    if not out:
+        print(f"  [{source_name}] no JobPosting structured data found at {page_url} "
+              f"(this site may not use schema.org markup)")
+    return out
+
+
+def fetch_arbeitnow() -> list[dict]:
+    """Arbeitnow's public API. Confirmed documented, no auth needed.
+    Europe-heavy but includes global remote roles. Has a structured
+    'remote' boolean field set by the poster."""
+    url = "https://www.arbeitnow.com/api/job-board-api"
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"  [arbeitnow] fetch failed: {e}")
+        return []
+    out = []
+    for j in data.get("data", []):
+        is_remote = j.get("remote", False)
+        loc_text = j.get("location", "") or ""
+        if is_remote and "remote" not in loc_text.lower():
+            loc_text = f"Remote {loc_text}".strip()
+        out.append({
+            "source": "arbeitnow",
+            "company": j.get("company_name", ""),
+            "title": j.get("title", ""),
+            "url": j.get("url", ""),
+            "raw_location": loc_text or ("Remote" if is_remote else ""),
+            "description": j.get("description", ""),
+            "posted_date": _to_date_str(_parse_epoch_ms(j.get("created_at"))) if
+                            str(j.get("created_at", "")).isdigit() else "",
+        })
+    return out
 
 
 def fetch_job_page_location(url: str) -> str:
@@ -121,7 +259,12 @@ def fetch_lever(slug: str) -> list[dict]:
 
 
 def fetch_ashby(slug: str) -> list[dict]:
-    url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+    """includeCompensation=true gets us STRUCTURED salary data straight
+    from the company (when they've opted in), which is more reliable
+    than regex-parsing description text.
+    NOTE: compensationTiers field names below are best-effort -- check
+    the next run's logs to confirm they're populating correctly."""
+    url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true"
     try:
         r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
         r.raise_for_status()
@@ -132,13 +275,23 @@ def fetch_ashby(slug: str) -> list[dict]:
     out = []
     for j in data.get("jobs", []):
         raw_date = j.get("publishedAt") or j.get("publishedDate") or ""
+        description = j.get("descriptionHtml", "") or ""
+        comp = j.get("compensation") or {}
+        comp_tiers = comp.get("compensationTiers") or []
+        if comp_tiers:
+            tier = comp_tiers[0]
+            lo = tier.get("minValue") or tier.get("additionalValue")
+            hi = tier.get("maxValue")
+            cur = tier.get("currencyCode", "")
+            if lo or hi:
+                description = f"{description} Salary: {cur} {lo}-{hi}."
         out.append({
             "source": "ashby",
             "company": slug,
             "title": j.get("title", ""),
             "url": j.get("jobUrl", ""),
             "raw_location": j.get("location", ""),
-            "description": j.get("descriptionHtml", ""),
+            "description": description,
             "posted_date": _to_date_str(_parse_iso(raw_date)),
         })
     return out
@@ -378,4 +531,7 @@ def fetch_all(companies: dict) -> list[dict]:
     jobs += fetch_himalayas()
     jobs += fetch_remotive()
     jobs += fetch_jobicy()
+    jobs += fetch_arbeitnow()
+    for target in companies.get("jsonld_sources", []):
+        jobs += fetch_jobpostings_via_jsonld(target["url"], target["name"])
     return jobs
