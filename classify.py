@@ -1,5 +1,7 @@
 """The only place AI is used. Batches ambiguous listings into a single
-call so cost stays near-zero. Uses Claude Haiku -- cheapest model.
+call so cost stays near-zero even at a few hundred jobs/week.
+Uses Claude Haiku -- cheapest model, more than enough for this
+structured-extraction task.
 """
 import os
 import json
@@ -7,7 +9,7 @@ import anthropic
 import filters
 
 MODEL = "claude-haiku-4-5-20251001"
-BATCH_SIZE = 15
+BATCH_SIZE = 15  # keep prompts small; batching amortizes the fixed cost
 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -63,6 +65,8 @@ def _build_batch_prompt(batch: list[dict]) -> str:
 
 
 def classify_batch(jobs: list[dict]) -> list[dict]:
+    """Mutates and returns jobs with remote_verdict/timezone_constrained
+    filled in, dropping any the model marks as not fitting."""
     results = []
     for start in range(0, len(jobs), BATCH_SIZE):
         batch = jobs[start:start + BATCH_SIZE]
@@ -71,7 +75,9 @@ def classify_batch(jobs: list[dict]) -> list[dict]:
         prompt = _build_batch_prompt(batch)
         try:
             resp = client.messages.create(
-                model=MODEL, max_tokens=1000, system=SYSTEM,
+                model=MODEL,
+                max_tokens=1000,
+                system=SYSTEM,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = resp.content[0].text.strip()
@@ -91,11 +97,12 @@ def classify_batch(jobs: list[dict]) -> list[dict]:
                 _, tier = filters.extract_salary(final_salary_text) if final_salary_text \
                     else (job.get("salary_range", ""), job.get("salary_tier", "unspecified"))
                 if tier == "below-60k":
-                    continue
+                    continue  # explicitly below the floor, drop
+                full_text = f"{job.get('raw_location','')} {job.get('description','')}"
                 job["remote_verdict"] = "yes"
                 job["availability"] = "global"
-                full_text = f"{job.get('raw_location','')} {job.get('description','')}"
-                job["location_confidence"] = filters.location_confidence(full_text)
+                job["location_confidence"] = filters.location_confidence(
+                    full_text, job.get('raw_location', ''), job.get('company', ''))
                 job["salary_range"] = final_salary_text
                 job["salary_tier"] = tier
                 job["industry"] = v.get("industry", "") or job.get("industry", "")

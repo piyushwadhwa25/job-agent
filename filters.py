@@ -3,6 +3,35 @@ Goal: throw away >85% of noise with regex, so the AI step only
 ever sees genuinely ambiguous cases.
 """
 import re
+import json
+from pathlib import Path
+
+
+def _load_companies_db() -> dict:
+    try:
+        path = Path(__file__).parent / "companies_db.json"
+        return json.loads(path.read_text())
+    except Exception as e:
+        print(f"  [companies_db] failed to load, continuing without it: {e}")
+        return {}
+
+
+_COMPANIES_DB = _load_companies_db()
+_CONFIRMED_COMPANIES = {c.lower() for c in
+                         _COMPANIES_DB.get("confirmed_india_remote", {}).get("companies", [])}
+_LIKELY_COMPANIES = {c.lower() for c in
+                      _COMPANIES_DB.get("global_hiring_role_dependent", {}).get("companies", [])}
+_BLOCKED_COMPANIES = {c.lower() for c in
+                       _COMPANIES_DB.get("known_not_india_eligible", {}).get("companies", [])}
+
+
+def _company_matches(company: str, name_set: set) -> bool:
+    """Substring match both directions -- handles slug vs display-name
+    variance (e.g. 'gitlab' vs 'GitLab', 'helpscout' vs 'Help Scout')."""
+    if not company:
+        return False
+    c = company.lower().strip()
+    return any(name in c or c in name for name in name_set if name)
 
 # Functions that commonly appear as "Senior/Director/VP Product X" but are
 # NOT product management -- must not match even though "product" appears.
@@ -47,6 +76,10 @@ REGION_PATTERNS = {
 }
 REGION_RES = {k: re.compile(v, re.IGNORECASE) for k, v in REGION_PATTERNS.items()}
 
+# Explicit signals that a listing is NOT globally open -- restricted to one
+# country/region only. Absence of these is treated as "globally open" by
+# default, since most remote postings simply don't mention a restriction
+# unless one exists.
 RESTRICTION_RE = re.compile(
     r"\b(must be (?:based|located|residing) in the (?:united states|u\.s\.|usa|uk|"
     r"united kingdom|eu|europe)\b|"
@@ -66,10 +99,13 @@ RESTRICTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Explicit signals a listing IS deliberately global -- purely informational,
+# not required for a job to pass.
 GLOBAL_OPEN_RE = re.compile(
     r"\b(work from anywhere|remote[\s-]?global|open to (?:all countries|"
     r"candidates worldwide|global candidates)|worldwide|anywhere in the world|"
-    r"no location restriction|globally distributed)\b",
+    r"no location restriction|globally distributed|remote[\s-]?anywhere|"
+    r"\banywhere\b)\b",
     re.IGNORECASE,
 )
 
@@ -80,6 +116,12 @@ INDIA_EXPLICIT_RE = re.compile(
     r"\b(eligible|welcome|open|hire|hiring)\b.{0,40}\bindia\b",
     re.IGNORECASE,
 )
+
+# Matches the location FIELD directly naming India -- e.g. "India Remote",
+# "Remote, India", "Remote - India". This is the single strongest positive
+# signal available: a company explicitly tagging a listing with India as
+# the location means it is unambiguously open to India, full stop.
+INDIA_LOCATION_TAG_RE = re.compile(r"\bindia\b", re.IGNORECASE)
 
 # Mentions of a global employer-of-record platform strongly imply the
 # company can legally hire in most countries including India, even if
@@ -104,6 +146,9 @@ TZ_CONSTRAINT_RE = re.compile(
     re.IGNORECASE
 )
 
+# Captures a currency marker alongside the range so we can tell whether a
+# figure is in USD (comparable to the $60k/$100k bar) or another currency
+# (shown as-is, never converted, never used to drop a listing).
 SALARY_WITH_CURRENCY_RE = re.compile(
     r"(?P<cur>USD|SGD|EUR|GBP|AED|\$|€|£)\s?"
     r"(?P<low>\d[\d,]{1,})(?:\s?[kK])?"
@@ -111,6 +156,8 @@ SALARY_WITH_CURRENCY_RE = re.compile(
     r"(?:USD|SGD|EUR|GBP|AED|\$|€|£)?\s?"
     r"(?P<high>\d[\d,]{1,})(?:\s?[kK])?"
 )
+# Bare "100k - 150k" with no currency marker at all -- ambiguous, but most
+# such listings on US/global boards default to USD in practice.
 SALARY_BARE_K_RE = re.compile(
     r"(?P<low>\d{2,3})[kK]\s*(?:-|–|to)\s*(?P<high>\d{2,3})[kK]"
 )
@@ -121,7 +168,8 @@ USD_MARKERS = {"USD", "$"}
 def extract_salary(text: str) -> tuple[str, str]:
     """Returns (display_string, tier). tier is one of:
     '100k+' | '60k-100k' | 'below-60k' | 'non-usd' | 'unspecified'
-    No currency conversion is ever performed."""
+    No currency conversion is ever performed -- non-USD figures are shown
+    as-is and tagged 'non-usd' so they're never used to drop a listing."""
     m = SALARY_WITH_CURRENCY_RE.search(text)
     if m:
         display = m.group(0).strip()
@@ -159,21 +207,29 @@ def title_matches(title: str) -> bool:
 
 
 def region_hint(text: str) -> str:
+    """Informational only -- which region(s) get mentioned, if any.
+    Does NOT gate whether a job is kept."""
     hits = [region for region, pat in REGION_RES.items() if pat.search(text)]
     return ", ".join(hits) if hits else ""
 
 
-def availability(raw_location: str, full_text: str) -> str:
+def availability(raw_location: str, full_text: str, company: str = "") -> str:
     """'global' | 'restricted' -- whether the listing is open worldwide
-    or limited to one country/region. Restricted if either:
-    1. Explicit restriction language anywhere in the text.
-    2. The location FIELD names a specific country/region (e.g.
-       "Remote - US", "Remote Canada") with no explicit "open
-       globally/worldwide/anywhere" language elsewhere. Companies naming
-       one country almost always mean it, even without a formal
-       citizenship sentence -- verified against real listings, this is
-       a hard drop, not routed to AI."""
+    or limited to one country/region. Checked in this order:
+    1. Location field explicitly names India -- always 'global', full
+       stop, overrides everything else.
+    2. Explicit restriction language anywhere in the text.
+    3. Company is on the known-not-India-eligible list (from research)
+       -- treated as restricted even if the specific listing's text
+       looks fine.
+    4. The location FIELD names a specific country/region (e.g.
+       "Remote - US") with no explicit "open globally/worldwide/anywhere"
+       language elsewhere -- empirically means restricted in practice."""
+    if INDIA_LOCATION_TAG_RE.search(raw_location or ""):
+        return "global"
     if RESTRICTION_RE.search(full_text):
+        return "restricted"
+    if _company_matches(company, _BLOCKED_COMPANIES):
         return "restricted"
     if raw_location and not GLOBAL_OPEN_RE.search(full_text):
         for _, pat in REGION_RES.items():
@@ -182,15 +238,20 @@ def availability(raw_location: str, full_text: str) -> str:
     return "global"
 
 
-def location_confidence(full_text: str) -> str:
+def location_confidence(full_text: str, raw_location: str = "", company: str = "") -> str:
     """'confirmed' | 'likely' | 'assumed' -- how solid the 'you can apply
     from India' read is, for jobs that already passed availability().
-    'assumed' means: nothing restricted it, but nothing confirmed it
-    either -- worth a quick manual check before you invest time applying.
-    """
+    Company-level research (companies_db.json) boosts confidence even
+    when the specific listing's text doesn't mention India itself."""
+    if INDIA_LOCATION_TAG_RE.search(raw_location or ""):
+        return "confirmed"
     if INDIA_EXPLICIT_RE.search(full_text) or EOR_PLATFORM_RE.search(full_text):
         return "confirmed"
+    if _company_matches(company, _CONFIRMED_COMPANIES):
+        return "confirmed"
     if GLOBAL_OPEN_RE.search(full_text):
+        return "likely"
+    if _company_matches(company, _LIKELY_COMPANIES):
         return "likely"
     return "assumed"
 
@@ -231,39 +292,52 @@ def remote_verdict(raw_location: str, full_text: str) -> str:
 
 
 def timezone_constrained(text: str) -> str:
+    """'yes' | 'unknown' -- only flags explicit constraints; absence of
+    a match does NOT mean unconstrained, hence 'unknown' not 'no'."""
     return "yes" if TZ_CONSTRAINT_RE.search(text) else "unknown"
 
 
 def prefilter(jobs: list[dict]) -> list[dict]:
+    """Stage 1: keep only jobs whose title looks like a senior product
+    role. Region is no longer a requirement -- we want globally-open
+    roles regardless of where the company itself is based."""
     return [j for j in jobs if title_matches(j["title"])]
 
 
 def classify_with_rules(jobs: list[dict], companies: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """Stage 2: apply remote + global-availability + salary-bar rules.
+    A job must be (a) remote, (b) not restricted to a single country
+    (via explicit language OR a bare single-country location tag), and
+    (c) not explicitly stated below $60k USD, to be kept. Company HQ
+    location is irrelevant either way.
+    Returns (resolved, needs_ai) -- resolved jobs already have a clear
+    verdict and skip the AI step entirely."""
     industry_map = (companies or {}).get("industry_map", {})
     resolved, needs_ai = [], []
     for j in jobs:
         full_text = f"{j.get('raw_location','')} {j.get('description','')}"
+        company_name = j.get('company', '')
         verdict = remote_verdict(j.get('raw_location', ''), full_text)
-        avail = availability(j.get('raw_location', ''), full_text)
+        avail = availability(j.get('raw_location', ''), full_text, company_name)
         salary_range, salary_tier = extract_salary(full_text)
         j["remote_verdict"] = verdict
         j["availability"] = avail
-        j["location_confidence"] = location_confidence(full_text)
-        j["timezone_constrained"] = timezone_constrained(full_text)
-        j["region_match"] = region_hint(full_text)
+        j["location_confidence"] = location_confidence(full_text, j.get('raw_location', ''), company_name)
+        j["timezone_constrained"] = timezone_constrained(full_text)  # informational only
+        j["region_match"] = region_hint(full_text)  # informational only
         j["salary_range"] = salary_range
         j["salary_tier"] = salary_tier
         j["industry"] = industry_map.get(j.get("company", "").lower(), "")
 
         if verdict == "no":
-            continue
+            continue  # no remote language, or explicitly onsite/hybrid -- drop
         if avail == "restricted":
-            continue
+            continue  # single-country tag or explicit restriction -- drop
         if salary_tier == "below-60k":
-            continue
+            continue  # explicitly stated below your floor, drop entirely
         if verdict == "yes":
             j["classified_by"] = "rules"
             resolved.append(j)
         else:
-            needs_ai.append(j)
+            needs_ai.append(j)  # remote status 'unclear' -- worth a second look
     return resolved, needs_ai

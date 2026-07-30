@@ -53,7 +53,9 @@ def _migrate(conn):
 
 def upsert_job(conn, job: dict):
     now = datetime.now(timezone.utc).isoformat()
-    existing = conn.execute("SELECT id FROM jobs WHERE url = ?", (job["url"],)).fetchone()
+    existing = conn.execute(
+        "SELECT id FROM jobs WHERE url = ?", (job["url"],)
+    ).fetchone()
     if existing:
         conn.execute(
             """UPDATE jobs SET last_seen = ?,
@@ -78,7 +80,8 @@ def upsert_job(conn, job: dict):
         (
             job["source"], job["company"], job["title"], job["url"],
             job.get("raw_location", ""), job.get("region_match", ""),
-            job.get("remote_verdict", "unclear"), job.get("availability", "global"),
+            job.get("remote_verdict", "unclear"),
+            job.get("availability", "global"),
             job.get("location_confidence", "assumed"),
             job.get("timezone_constrained", "unknown"),
             job.get("salary_range", ""), job.get("salary_tier", "unspecified"),
@@ -92,7 +95,8 @@ def upsert_job(conn, job: dict):
 def export_new_as_dicts(conn):
     cur = conn.execute(
         "SELECT company, title, url, raw_location, region_match, remote_verdict, "
-        "salary_range, salary_tier, industry, posted_date, timezone_constrained, first_seen "
+        "salary_range, salary_tier, location_confidence, industry, posted_date, "
+        "timezone_constrained, first_seen "
         "FROM jobs WHERE status='new' ORDER BY first_seen DESC"
     )
     cols = [d[0] for d in cur.description]

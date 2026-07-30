@@ -1,46 +1,32 @@
 {
   "greenhouse": [
-    "gitlab", "automattic", "zapier", "doist", "elastic", "hashicorp",
-    "webflow", "canonical", "invisiontech", "articulate", "clevertech",
-    "close", "gitbook", "postscript", "loom", "figma", "notion",
-    "airtable", "linear", "vercel", "retool", "coinbase", "reddit",
-    "instacart", "robinhood", "twitch", "pinterest", "asana", "confluent",
-    "checkr", "brex", "affirm", "carta", "gusto", "docker", "sentry",
-    "circleci", "auth0", "segment", "datadog"
+    "gitlab", "elastic", "webflow", "canonical", "postscript", "figma",
+    "airtable", "vercel", "coinbase", "reddit", "instacart", "robinhood",
+    "twitch", "pinterest", "asana", "checkr", "brex", "affirm", "carta",
+    "gusto", "circleci", "datadog"
   ],
   "lever": [
-    "netlify", "clevertech", "toggl", "buffer", "helpscout",
-    "remote-com", "supabase", "planetscale", "shopify", "eventbrite",
-    "box", "plaid", "attentive", "grammarly", "postman"
+    "plaid", "h1", "levelai", "jumpcloud", "drivetrain", "spreetail",
+    "aircall", "smart-working-solutions", "weekdayworks"
   ],
   "ashby": [
-    "ashby", "mercury", "linear", "vanta", "modernhealth", "ramp",
-    "deel", "openai", "notion", "replit", "perplexityai"
+    "ashby", "mercury", "linear", "vanta", "ramp", "deel", "openai",
+    "notion", "replit"
   ],
-  "smartrecruiters": ["visa", "bosch", "ikea"],
-  "workable": [],
   "industry_map": {
-    "gitlab": "devtools", "automattic": "cms/publishing", "zapier": "automation/saas",
-    "doist": "productivity saas", "elastic": "devtools", "hashicorp": "devtools",
-    "webflow": "no-code/saas", "canonical": "devtools", "invisiontech": "design saas",
-    "articulate": "e-learning", "close": "sales saas", "gitbook": "devtools",
-    "postscript": "marketing saas", "loom": "video/collab", "figma": "design saas",
-    "notion": "productivity saas", "airtable": "productivity saas", "linear": "devtools",
-    "vercel": "devtools", "retool": "devtools", "netlify": "devtools",
-    "toggl": "productivity saas", "buffer": "marketing saas", "helpscout": "support saas",
-    "remote-com": "hr/payroll", "supabase": "devtools", "planetscale": "devtools",
-    "mercury": "fintech", "vanta": "security saas", "modernhealth": "healthtech",
-    "coinbase": "crypto/fintech", "reddit": "social media", "instacart": "e-commerce/delivery",
-    "robinhood": "fintech", "twitch": "streaming/media", "pinterest": "social media",
-    "asana": "productivity saas", "confluent": "devtools/data", "checkr": "hr tech",
-    "brex": "fintech", "affirm": "fintech", "carta": "fintech/legal",
-    "gusto": "hr/payroll", "docker": "devtools", "sentry": "devtools",
-    "circleci": "devtools", "auth0": "security/devtools", "segment": "data/devtools",
-    "datadog": "devtools", "shopify": "e-commerce", "eventbrite": "events/marketplace",
-    "box": "cloud storage/saas", "plaid": "fintech", "attentive": "marketing saas",
-    "grammarly": "productivity saas", "postman": "devtools", "ramp": "fintech",
-    "deel": "hr/payroll", "openai": "ai/ml", "replit": "devtools",
-    "perplexityai": "ai/ml"
+    "gitlab": "devtools", "elastic": "devtools", "webflow": "no-code/saas",
+    "canonical": "devtools", "postscript": "marketing saas", "figma": "design saas",
+    "airtable": "productivity saas", "vercel": "devtools", "coinbase": "crypto/fintech",
+    "reddit": "social media", "instacart": "e-commerce/delivery", "robinhood": "fintech",
+    "twitch": "streaming/media", "pinterest": "social media", "asana": "productivity saas",
+    "checkr": "hr tech", "brex": "fintech", "affirm": "fintech", "carta": "fintech/legal",
+    "gusto": "hr/payroll", "circleci": "devtools", "datadog": "devtools",
+    "plaid": "fintech", "ashby": "hr tech", "mercury": "fintech", "linear": "devtools",
+    "vanta": "security saas", "ramp": "fintech", "deel": "hr/payroll",
+    "openai": "ai/ml", "notion": "productivity saas", "replit": "devtools",
+    "h1": "healthtech/data", "levelai": "ai/ml", "jumpcloud": "security/devtools",
+    "drivetrain": "fintech/saas", "spreetail": "e-commerce", "aircall": "saas/comms",
+    "smart-working-solutions": "staffing/services", "weekdayworks": "hr tech"
   },
-  "notes": "Slugs are the company's ATS board identifier, verify at boards.greenhouse.io/{slug}, jobs.lever.co/{slug}, or jobs.ashbyhq.com/{slug} before relying on them. WeWorkRemotely and Himalayas in sources.py cover hundreds more companies automatically and are the main lever for daily volume."
+  "notes": "Slugs confirmed working as of 2026-07-30. WeWorkRemotely, Himalayas, Remotive, and Jobicy (in sources.py) cover hundreds more companies automatically with no slug needed -- that's the main lever for volume. Add slugs here only after verifying at boards.greenhouse.io/{slug}, jobs.lever.co/{slug}, or jobs.ashbyhq.com/{slug} directly -- don't guess."
 }

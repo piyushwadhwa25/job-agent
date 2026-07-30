@@ -1,0 +1,31 @@
+{
+  "_meta": {
+    "purpose": "Master reference for India-eligibility signal, separate from companies.json (which is just ATS-fetch slugs). Update this file as you find new evidence -- it's meant to grow over time.",
+    "last_updated": "2026-07-30",
+    "source": "Manual research compiled 2026-07-30"
+  },
+  "confirmed_india_remote": {
+    "_note": "Direct evidence of 'India Remote' listings. Highest confidence tier.",
+    "companies": ["gitlab", "elastic", "wikimedia foundation", "wikimedia", "h1", "level ai", "jumpcloud", "drivetrain", "grafana labs", "grafana"]
+  },
+  "global_hiring_role_dependent": {
+    "_note": "Confirmed globally-remote hiring model, but individual roles can still carry restrictions.",
+    "companies": ["automattic", "canonical", "remote", "deel", "zapier", "doist", "toggl", "buffer", "duckduckgo", "consensys", "nethermind", "spreetail", "aircall", "springworks", "storylane", "testgorilla", "sporty group", "safetywing", "kinsta", "mailerlite", "zyte", "ynab", "appcues", "chili piper", "constructor", "contra", "float", "ghost", "groove", "kit", "convertkit", "liveblocks", "mailbird", "meetedgar", "modash", "panopto", "pitch", "plus ai", "podia", "shogun", "simpletexting", "smile.io", "tldv", "whereby", "namecheap", "john snow labs"]
+  },
+  "known_not_india_eligible": {
+    "_note": "Research flagged these as commonly restricting to US/EU/Canada. Hard-excluded regardless of listing text.",
+    "companies": ["15five", "articulate", "atticus", "hims", "snapdocs", "dribbble", "help scout", "helpscout", "aha!", "aha", "lightdash", "slite", "oliva", "sketch", "tidio", "lumos"]
+  },
+  "eligibility_varies_by_listing": {
+    "_note": "No blanket adjustment, evaluate each listing normally.",
+    "companies": ["shopify", "hubstaff", "sprout social"]
+  },
+  "known_ats_slugs": {
+    "_note": "Sourced from actual citation URLs in research, not guessed.",
+    "lever": ["h1", "levelai", "jumpcloud", "drivetrain", "spreetail", "aircall", "smart-working-solutions", "weekdayworks"]
+  },
+  "talent_marketplaces_not_ats": {
+    "_note": "Matching platforms, not company job boards -- no ATS API without a dedicated scraper (not built yet).",
+    "companies": ["crossover", "braintrust", "toptal", "a.team", "arc", "flexiple", "uplers", "contra", "mercor", "ethos"]
+  }
+}

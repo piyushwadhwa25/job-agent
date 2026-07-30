@@ -1,4 +1,8 @@
-"""Exports jobs.db into a single static HTML page (docs/index.html)."""
+"""Exports jobs.db into a single static HTML page (docs/index.html).
+Zero AI cost, zero extra dependencies. GitHub Pages serves this
+directly from the repo, so you get a URL you can open on your phone
+with no setup beyond one toggle in repo settings.
+"""
 from pathlib import Path
 from datetime import datetime, timezone, date
 import db
@@ -6,16 +10,24 @@ import db
 OUT_PATH = Path(__file__).parent / "docs" / "index.html"
 
 TIER_ORDER = {"100k+": 0, "60k-100k": 1, "non-usd": 2, "unspecified": 3, "": 3}
-TIER_LABELS = {"100k+": "$100k+", "60k-100k": "$60-100k", "non-usd": "non-USD",
-                "unspecified": "not listed", "": "not listed"}
-TIER_CLASS = {"100k+": "tier-high", "60k-100k": "tier-mid", "non-usd": "tier-nonusd",
-              "unspecified": "tier-unk", "": "tier-unk"}
+TIER_LABELS = {
+    "100k+": "$100k+", "60k-100k": "$60-100k", "non-usd": "non-USD",
+    "unspecified": "not listed", "": "not listed",
+}
+TIER_CLASS = {
+    "100k+": "tier-high", "60k-100k": "tier-mid", "non-usd": "tier-nonusd",
+    "unspecified": "tier-unk", "": "tier-unk",
+}
 
 CONF_ORDER = {"confirmed": 0, "likely": 1, "assumed": 2, "": 2}
-CONF_LABELS = {"confirmed": "India confirmed", "likely": "likely global",
-               "assumed": "verify location", "": "verify location"}
-CONF_CLASS = {"confirmed": "conf-confirmed", "likely": "conf-likely",
-              "assumed": "conf-assumed", "": "conf-assumed"}
+CONF_LABELS = {
+    "confirmed": "India confirmed", "likely": "likely global",
+    "assumed": "verify location", "": "verify location",
+}
+CONF_CLASS = {
+    "confirmed": "conf-high", "likely": "conf-mid",
+    "assumed": "conf-low", "": "conf-low",
+}
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -34,7 +46,7 @@ TEMPLATE = """<!DOCTYPE html>
   tr:hover {{ background: #171a21; }}
   a {{ color: #7dc4ff; text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
-  .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }}
+  .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; margin-bottom: 2px; }}
   .rules {{ background: #1e3a2a; color: #7fd99f; }}
   .ai {{ background: #2a2440; color: #b3a1ff; }}
   .fresh {{ background: #402a1e; color: #ffb37f; font-weight: 600; }}
@@ -42,12 +54,14 @@ TEMPLATE = """<!DOCTYPE html>
   .tier-mid {{ background: #2f3a1e; color: #c9d97f; }}
   .tier-nonusd {{ background: #1e2f3a; color: #7fc0d9; }}
   .tier-unk {{ background: #2a2a2a; color: #999; }}
-  .conf-confirmed {{ background: #1e3a2a; color: #7fd99f; font-weight: 600; }}
-  .conf-likely {{ background: #2f3a1e; color: #c9d97f; }}
-  .conf-assumed {{ background: #402a1e; color: #ffb37f; }}
+  .conf-high {{ background: #1e3a2a; color: #7fd99f; }}
+  .conf-mid {{ background: #2a2f1e; color: #c9d97f; }}
+  .conf-low {{ background: #3a2a1e; color: #d9a67f; }}
   input[type=text] {{ width: 100%; padding: 8px; margin-bottom: 12px; border-radius: 6px;
          border: 1px solid #2a2d35; background: #171a21; color: #e6e6e6; box-sizing: border-box; }}
-  @media (max-width: 600px) {{ .hide-mobile {{ display: none; }} }}
+  @media (max-width: 600px) {{
+    .hide-mobile {{ display: none; }}
+  }}
 </style>
 </head>
 <body>
@@ -106,6 +120,7 @@ def build():
     conn.close()
 
     today = datetime.now(timezone.utc).date()
+
     rows = sorted(rows, key=lambda r: (
         TIER_ORDER.get(r[5] or "", 3),
         CONF_ORDER.get(r[6] or "", 2),
@@ -115,10 +130,10 @@ def build():
 
     row_html = []
     for r in rows:
-        company, title, url, region, salary_range, tier, loc_conf, industry, source, \
-            classified_by, posted_date_str, first_seen = r
+        company, title, url, region, salary_range, tier, confidence, industry, \
+            source, classified_by, posted_date_str, first_seen = r
         tier = tier or "unspecified"
-        loc_conf = loc_conf or "assumed"
+        confidence = confidence or "assumed"
         fresh_badge = ""
         if posted_date_str:
             try:
@@ -130,17 +145,20 @@ def build():
         salary_detail = f" {salary_range}" if salary_range else ""
         row_html.append(ROW_TEMPLATE.format(
             company=company, title=title, url=url, region=region or "-",
-            industry=industry or "-", source=source, classified_by=classified_by or "rules",
-            tier_class=TIER_CLASS.get(tier, "tier-unk"), tier_label=TIER_LABELS.get(tier, "not listed"),
+            industry=industry or "-", source=source,
+            classified_by=classified_by or "rules",
+            tier_class=TIER_CLASS.get(tier, "tier-unk"),
+            tier_label=TIER_LABELS.get(tier, "not listed"),
             salary_detail=salary_detail,
-            conf_class=CONF_CLASS.get(loc_conf, "conf-assumed"),
-            conf_label=CONF_LABELS.get(loc_conf, "verify location"),
+            conf_class=CONF_CLASS.get(confidence, "conf-low"),
+            conf_label=CONF_LABELS.get(confidence, "verify location"),
             posted=posted_date_str or "-", fresh_badge=fresh_badge,
         ))
     row_html = "\n".join(row_html)
 
     html = TEMPLATE.format(
-        count=len(rows), updated=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        count=len(rows),
+        updated=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         rows=row_html or "<tr><td colspan=8>No listings yet.</td></tr>",
     )
     OUT_PATH.parent.mkdir(exist_ok=True)

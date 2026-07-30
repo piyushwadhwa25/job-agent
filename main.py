@@ -1,11 +1,12 @@
 """Entry point. Run with: python3 main.py
 
 Pipeline:
-  1. Fetch raw listings from all sources          (cost: $0)
-  2. Rule-based prefilter on title + region        (cost: $0)
-  3. Rule-based remote/timezone classification     (cost: $0)
-  4. AI classification, ONLY for what's left       (cost: fractions of a cent)
-  5. Upsert everything into SQLite
+  1. Fetch raw listings from all sources            (cost: $0)
+  2. Rule-based title prefilter                     (cost: $0)
+  3. Page-location enrichment for weak sources       (cost: $0, extra HTTP)
+  4. Rule-based remote/availability classification   (cost: $0)
+  5. AI classification, ONLY for what's left         (cost: fractions of a cent)
+  6. Upsert everything into SQLite
 """
 import json
 import sys
