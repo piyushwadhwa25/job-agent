@@ -2,6 +2,7 @@
 keys: source, company, title, url, raw_location, description, posted_date.
 No AI, no cost -- these are plain HTTP + JSON/XML parsing.
 """
+import time
 import requests
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -44,6 +45,7 @@ def enrich_locations(jobs: list[dict], sources_to_enrich=("greenhouse",)) -> Non
         page_loc = fetch_job_page_location(j["url"])
         if page_loc:
             j["raw_location"] = f"{j.get('raw_location','')} {page_loc}".strip()
+        time.sleep(0.3)
 
 
 def _to_date_str(dt):
