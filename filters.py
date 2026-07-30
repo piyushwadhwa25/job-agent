@@ -4,18 +4,34 @@ ever sees genuinely ambiguous cases.
 """
 import re
 
+# Functions that commonly appear as "Senior/Director/VP Product X" but are
+# NOT product management -- must not match even though "product" appears.
+_DISQUALIFY_SUFFIX = (
+    r"(design(er)?|market(ing)?|counsel|legal|engineer(ing)?|data|content|"
+    r"brand|ops|operations|analytics|program|support|success|sales|"
+    r"communications?|finance|hr|people|talent|recruit(ing|er)?)"
+)
+
 TITLE_PATTERNS = [
     r"\bsenior product manager\b", r"\bsr\.?\s*product manager\b",
-    r"\bsenior\b.*\bproduct\b", r"\bdirector\b.*\bproduct\b",
-    r"\bvp\b.*\bproduct\b", r"\bhead of product\b",
-    r"\bgroup product manager\b", r"\bprincipal product manager\b",
-    r"\bchief product officer\b", r"\bcpo\b",
+    # Seniority word must be tightly adjacent to "product" (only whitespace/
+    # comma/dash/"of" in between) AND "product" must NOT be immediately
+    # followed by a disqualifying function word -- this is what "Senior
+    # Product Counsel" and "Director, Product Design" were slipping
+    # through on before (the old ".*" matched across any distance).
+    rf"\b(senior|sr\.?|director|group|principal)\b[\s,\-]*(of\s+)?product\b"
+    rf"(?!\s*{_DISQUALIFY_SUFFIX})",
+    rf"\bvp\b[\s,\-]*(of\s+)?product\b(?!\s*{_DISQUALIFY_SUFFIX})",
+    r"\bhead of product\b", r"\bchief product officer\b", r"\bcpo\b",
 ]
 TITLE_RE = re.compile("|".join(TITLE_PATTERNS), re.IGNORECASE)
 
+# Belt-and-suspenders: catches any straggler the adjacency regex above
+# might still let through.
 TITLE_EXCLUDE_RE = re.compile(
-    r"\b(designer|engineer|marketing|sales|analyst|data scientist|"
-    r"customer success|support)\b", re.IGNORECASE
+    r"\b(designer|design|engineer|marketing|sales|analyst|data scientist|"
+    r"customer success|support|counsel|legal|program manager)\b",
+    re.IGNORECASE,
 )
 
 REGION_PATTERNS = {
@@ -181,23 +197,35 @@ def location_confidence(full_text: str) -> str:
 
 BARE_REMOTE_MENTION_RE = re.compile(r"\bremote\b", re.IGNORECASE)
 
+# Matches specific office addresses like "San Francisco, CA" or "New York, NY"
+# -- "City, ST" or "City, Country" patterns. When the location field itself
+# looks like this AND doesn't say "remote", that's the ground truth: it's
+# an office job, full stop, regardless of generic "we support remote work"
+# boilerplate that companies often paste into every job description's
+# benefits section (which was fooling both the rules and the AI).
+SPECIFIC_OFFICE_RE = re.compile(r"\b[A-Za-z][A-Za-z\s]{1,30},\s*[A-Za-z]{2,}\b")
 
-def remote_verdict(text: str) -> str:
-    """'yes' | 'no' | 'unclear' based on plain keyword rules.
-    Important: if the text doesn't mention "remote" ANYWHERE (not even
-    the location field), that's treated as 'no', not 'unclear'. A plain
-    city-listed job with zero remote language is almost always just an
-    office job -- sending it to the AI as "maybe" was letting non-remote
-    roles slip through on a coin-flip. Only jobs that at least mention
-    "remote" somewhere, but not in a clearly qualifying phrase, go to
-    the AI for a closer read."""
-    has_yes = bool(REMOTE_YES_RE.search(text))
-    has_no = bool(REMOTE_NO_RE.search(text))
+
+def remote_verdict(raw_location: str, full_text: str) -> str:
+    """'yes' | 'no' | 'unclear'. The location field is treated as ground
+    truth over the free-text description: generic "we're remote-friendly"
+    boilerplate buried in a benefits section was causing genuinely
+    office-based roles (location field = a specific city) to be classified
+    as remote. If the location field names a specific office and doesn't
+    itself say "remote", that's a hard 'no' -- no amount of boilerplate
+    elsewhere overrides it."""
+    loc = raw_location or ""
+    loc_says_remote = bool(BARE_REMOTE_MENTION_RE.search(loc))
+    if SPECIFIC_OFFICE_RE.search(loc) and not loc_says_remote:
+        return "no"
+
+    has_yes = bool(REMOTE_YES_RE.search(full_text))
+    has_no = bool(REMOTE_NO_RE.search(full_text))
     if has_yes and not has_no:
         return "yes"
     if has_no:
         return "no"
-    if not BARE_REMOTE_MENTION_RE.search(text):
+    if not (loc_says_remote or BARE_REMOTE_MENTION_RE.search(full_text)):
         return "no"
     return "unclear"
 
@@ -215,7 +243,7 @@ def classify_with_rules(jobs: list[dict], companies: dict | None = None) -> tupl
     resolved, needs_ai = [], []
     for j in jobs:
         full_text = f"{j.get('raw_location','')} {j.get('description','')}"
-        verdict = remote_verdict(full_text)
+        verdict = remote_verdict(j.get('raw_location', ''), full_text)
         avail = availability(j.get('raw_location', ''), full_text)
         salary_range, salary_tier = extract_salary(full_text)
         j["remote_verdict"] = verdict
